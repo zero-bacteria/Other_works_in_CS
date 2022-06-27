@@ -208,5 +208,9 @@ $RECYCLE.BIN/
 # 실행파일 추가
 *.exe
 
+# 이미지 파일 추가
+*.png
+*.jpg
+
 # End of https://www.toptal.com/developers/gitignore/api/windows,python,jupyternotebooks
 
