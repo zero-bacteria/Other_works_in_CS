@@ -1,0 +1,4 @@
+PO 기준으로 정렬해서 날짜 역전되더라도 tracking 안됨
+
+
+APS오더는 PCX에 document 준비 안해주기 때문에 remain new/ old에 포함 안시킴

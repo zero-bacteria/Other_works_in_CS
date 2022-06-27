@@ -205,5 +205,8 @@ $RECYCLE.BIN/
 *.xlsm
 *.xls
 
+# 실행파일 추가
+*.exe
+
 # End of https://www.toptal.com/developers/gitignore/api/windows,python,jupyternotebooks
 

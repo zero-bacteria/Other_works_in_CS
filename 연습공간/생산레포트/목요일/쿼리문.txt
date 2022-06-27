@@ -1,0 +1,60 @@
+let
+    // Exception report query
+    원본 = #"Exception list",
+    // Final Report 에 맞게 열 이름들 변경 
+    #"이름을 바꾼 열 수" = Table.RenameColumns(원본,{{"Planning Season", "PO Season"}, {"MO ID", "DPA"}, {"Dev.style", "Dev.Style"}, {"Dev. Style", "Model Name"}, {"Status", "New / Remain"}, {"TD", "TD Code"}, {"PO ID", "PO"}, {"GAC", "Current GAC"}, {"SAP Request", "SAP PO"}}),
+    // 필요 없는 열 제거
+    #"제거된 열 수" = Table.RemoveColumns(#"이름을 바꾼 열 수",{"OBS Type", "Actual PCC", "Remarks"}),
+    // SP22 & SU22 Linesheet 의 Quote state / PCX Reqeust 정보를 가져오기 위해
+    // Dev.style / costing season / factory 기준으로 병합해서 Quote state / PCX Request 열만 가져옴
+    // 
+    #"병합된 쿼리1" = Table.NestedJoin(#"제거된 열 수",{"Costing Season", "Factory", "Dev.Style"},#"SP22 & SU22 Linesheet",{"Costing Season", "Sourcing Configuration", "Dev.style"},"SP22 & SU22 Linesheet",JoinKind.LeftOuter),
+    // PCC Developer/ Development TEAM / Quote state / PCX Request / Quote State Date 열 확장
+    #"확장된 SP22 & SU22 Linesheet" = Table.ExpandTableColumn(#"병합된 쿼리1", "SP22 & SU22 Linesheet", {"Source.Name", "Quote State", "PCC Developer", "PMO Costing BOM/BOL", "Development Team", "Quote State Date", "PCX Request"}, {"Source.Name", "Quote State", "PCC Developer", "PMO Costing BOM/BOL", "Development Team", "Quote State Date", "PCX Request"}),
+    // 1. PCC Developer 열 -> PCC TD 로 바꿈 (Linesheet only query 추가 시 열 일치하기 위함)
+    // 2. PMO COSTING BOM/BOL -> PMO Validator (Linesheet) : 누리 요청 사항 
+    // 
+    #"이름을 바꾼 열 수2" = Table.RenameColumns(#"확장된 SP22 & SU22 Linesheet",{{"PCC Developer", "PCC TD"}, {"PMO Costing BOM/BOL", "PMO Validator (Linesheet)"}}),
+    // Exception query 에 Linesheet query 추가
+    #"추가된 쿼리" = Table.Combine({#"이름을 바꾼 열 수2", #"Linesheet Only"}),
+    // SAP PO 열 null 값을 X로 바꿈 
+    #"바꾼 값" = Table.ReplaceValue(#"추가된 쿼리",null,"X",Replacer.ReplaceValue,{"SAP PO"}),
+    // PCX Reqeust 열 null 값을 X로 바꿈 
+    #"바꾼 값1" = Table.ReplaceValue(#"바꾼 값",null,"X",Replacer.ReplaceValue,{"PCX Request"}),
+    // NCF FOB Tracking report (Previous) 정보 병합
+    // 
+    // Costing Season / Factory / Dev.Style / PO ID  기준으로 병합
+    // 
+    #"병합된 쿼리" = Table.NestedJoin(#"바꾼 값1",{"Costing Season", "Factory", "Dev.Style", "PO"},#"NCF FOB Tracking report",{"Costing Season", "Factory", "Dev.Style", "PO"},"NCF FOB Tracking report",JoinKind.LeftOuter),
+    // 필요한 열들 확장해서 가져옴 
+    #"확장된 NCF FOB Tracking report" = Table.ExpandTableColumn(#"병합된 쿼리", "NCF FOB Tracking report", {"PCC", "PFC", "RFC Trial date", "Current GAC", "ETQ", "PCC PIC (Costing)", "PMO Validator", "Ready for review Date", "Quote Missing/Pending  reason"}, {"PCC", "PFC", "RFC Trial date", "Current GAC.1", "ETQ", "PCC PIC (Costing)", "PMO Validator", "Ready for review Date", "Quote Missing/Pending  reason"}),
+    //  Source.Name이 SU22.xls 이면 PMO Validator (Linesheet) 셀 가져오고 아니면 PMO Validator 가져오기 
+    #"조건 열이 추가됨" = Table.AddColumn(#"확장된 NCF FOB Tracking report", "PMO", each if [Source.Name] = "SU22.xls" then [#"PMO Validator (Linesheet)"] else if [Source.Name] = "FA22.xls" then [#"PMO Validator (Linesheet)"] else [PMO Validator]),
+    // NCF FOB Tracking report (Previous) 
+    // 
+    // Current GAC 열 -> Previous GAC 으로 이름 변경 
+    #"이름을 바꾼 열 수1" = Table.RenameColumns(#"조건 열이 추가됨",{{"Current GAC.1", "Previous GAC"}, {"CBD Status", "Sephiroth Status"}, {"Quote State", "PCX Status"}, {"Quote State Date", "Quote Status Date"}}),
+    // PMO Validator 열 제거
+    #"제거된 열 수2" = Table.RemoveColumns(#"이름을 바꾼 열 수1",{"PMO Validator", "PCC Code", "Production report.xlsx", "CBD ETQ", "Source.Name"}),
+    // PMO - > PMO Validator
+    #"이름을 바꾼 열 수4" = Table.RenameColumns(#"제거된 열 수2",{{"PMO", "PMO Validator"}}),
+    // FINAL REPORT 양식에 맞게 열 정렬 
+    #"다시 정렬한 열 수" = Table.ReorderColumns(#"이름을 바꾼 열 수4",{"PO Season", "Costing Season", "PCC", "Factory", "DPA", "Dev.Style", "Colorway", "Model Name", "New / Remain", "Development Team", "PCC TD", "PFC", "TD Code", "RFC Trial date", "PO", "Current GAC", "Previous GAC", "GAC-49", "ETQ", "Document Posting", "5523 in PCX", "OBS/MEOF CT / Tooling QTY", "PST / SUTF / SBTF", "YIELD", "Bottom MEOF", "CFM Shoe", "PFC (Non trial c/w)", "PFC (RFC trial c/w)", "PMO Validator (Linesheet)", "CS BOM (T/P X)", "CS BOM (T/P O)", "PCC PIC (Costing)", "PMO Validator", "Ready for review Date", "Sephiroth Status", "PCX Status", "Quote Status Date", "Quote Missing/Pending  reason", "PCX Request", "SAP PO"}),
+    // ETQ 열 복제 (Previous ETQ 만들기위함)
+    #"중복된 열" = Table.DuplicateColumn(#"다시 정렬한 열 수", "ETQ", "ETQ - 복사"),
+    // 1ETQ -복사 열을 ETQ 바로 오른쪽으로 정렬
+    // 
+    // 2PMO Validator (Linesheet) 를 제일 오른쪽으로 정렬 
+    #"다시 정렬한 열 수1" = Table.ReorderColumns(#"중복된 열",{"PO Season", "Costing Season", "PCC", "Factory", "DPA", "Dev.Style", "Colorway", "Model Name", "New / Remain", "Development Team", "PCC TD", "TD Code", "RFC Trial date", "PO", "Current GAC", "Previous GAC", "GAC-49", "ETQ", "ETQ - 복사", "Document Posting", "5523 in PCX", "OBS/MEOF CT / Tooling QTY", "PST / SUTF / SBTF", "YIELD", "Bottom MEOF", "CFM Shoe", "PFC (Non trial c/w)", "PFC (RFC trial c/w)", "CS BOM (T/P X)", "CS BOM (T/P O)", "PCC PIC (Costing)", "PMO Validator", "Ready for review Date", "Sephiroth Status", "PCX Status", "Quote Status Date", "Quote Missing/Pending  reason", "PCX Request", "SAP PO", "PMO Validator (Linesheet)"}),
+    // ETQ-복사 -> Previous ETQ 로 이름 바꿈 
+    #"이름을 바꾼 열 수3" = Table.RenameColumns(#"다시 정렬한 열 수1",{{"ETQ - 복사", "Previous ETQ"}}),
+    // PO Season / Costing Season / Factory / Dev.style / PO 기준으로
+    // 중복된 항목 제거
+    // (Previous 병합 후 행 늘어나서 중복됨)
+    #"제거된 중복 항목 수" = Table.Distinct(#"이름을 바꾼 열 수3", {"PO Season", "Costing Season", "Factory", "Dev.Style", "PO"}),
+    // ETQ / CS BOM (T/P X) / CS BOM (T/P O) 서식 날짜로 변경 
+    #"변경된 유형" = Table.TransformColumnTypes(#"제거된 중복 항목 수",{{"ETQ", type date}, {"CS BOM (T/P X)", type date}, {"CS BOM (T/P O)", type date}, {"Previous ETQ", type date}, {"RFC Trial date", type date}, {"Ready for review Date", type date}}),
+    #"제거된 열 수1" = Table.RemoveColumns(#"변경된 유형",{"Tooling Cost USD", "CBD Link"}),
+    #"다시 정렬한 열 수2" = Table.ReorderColumns(#"제거된 열 수1",{"PO Season", "Costing Season", "PCC", "Factory", "DPA", "Dev.Style", "Colorway", "Model Name", "New / Remain", "Development Team", "PCC TD", "PFC", "TD Code", "RFC Trial date", "PO", "Current GAC", "Previous GAC", "GAC-49", "ETQ", "Previous ETQ", "Document Posting", "5523 in PCX", "OBS/MEOF CT / Tooling QTY", "PST / SUTF / SBTF", "YIELD", "Bottom MEOF", "CFM Shoe", "PFC (Non trial c/w)", "PFC (RFC trial c/w)", "CS BOM (T/P X)", "CS BOM (T/P O)", "PCC PIC (Costing)", "PMO Validator", "Ready for review Date", "Sephiroth Status", "PCX Status", "Quote Status Date", "Quote Missing/Pending  reason", "PCX Request", "SAP PO", "PMO Validator (Linesheet)", "DPO"})
+in
+    #"다시 정렬한 열 수2"
