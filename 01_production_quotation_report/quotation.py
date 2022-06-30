@@ -275,6 +275,7 @@ raw_df['remain_type'] = ''
 raw_df.loc[init_condition, 'remain_type'] = 'New'
 raw_df.loc[remain_old_condition, 'remain_type'] = 'Old'
 
+raw_df.loc[~(raw_df.CBD_ETQ.isnull()), 'CBD_ETQ'] = raw_df.loc[~(raw_df.CBD_ETQ.isnull()), 'CBD_ETQ'].astype(str).str.slice(start = 0, stop = 10)
 
 # raw_df.remain_type.value_counts()
 # raw_df = pd.merge(raw_df, my_df[['my_key', 'remain_type']], how='left', on='my_key')

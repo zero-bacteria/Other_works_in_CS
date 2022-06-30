@@ -1,45 +1,69 @@
 import os
 import openpyxl as px
+import pandas as pd
 import win32com.client as win32
 from datetime import datetime
 from openpyxl.styles import Font,Border,Side,Alignment,PatternFill
+from openpyxl.utils.dataframe import dataframe_to_rows
+
+def make_df(wb):
+    ws = wb.active
+    
+    
+    merged_list = list()
+
+    for m_range in ws.merged_cells.ranges:
+        merged_list.append(m_range.coord)
+
+    for m_range in merged_list:
+        ws.unmerge_cells(str(m_range))
+
+    ws.delete_rows(1,2)
+    
+    df = pd.DataFrame(ws.values)
+    df.columns = df.iloc[0,:]
+    df = df.iloc[1:, :]
+    df = df.reset_index(drop=True)
+    
+    my_col = df.columns.str.replace(' ','_').str.lower()
+    my_col = my_col.str.replace('.','',regex=True)
+    
+    df.columns = my_col
+    
+    df['gac'] = pd.to_datetime(df.gac)
+    df['gac-49'] = pd.to_datetime(df['gac-49'])
+    
+    
+    
+    return df
 
 
-# 구별을 위한 key를 만드는 함수
-# 기존 PR파일을 대상으로 만드는 것 
-def make_key(sh):
-    # 기존파일이므로 4부터 시작, 제목 적어줌
-    sh.cell(3,23).value = 'KEY'
-    # 구별할 수 있는 키를 부여
-    for i in range(4, sh.max_row +1):
-        # SAP PO가 있는것을 대상으로만 진행
-        # 근데 무조건 있을수 밖에 없지 않나?
-        if sh.cell(i, 21).value == 'O':
-            # Order type + PO + Factory + St.code
-            sh.cell(i, 23).value = sh.cell(i,2).value + sh.cell(i,6).value +sh.cell(i,7).value + sh.cell(i,9).value
-            # print(sh.cell(i,23).value)
-# 가능한 리스크 : PCX에 request되지 않은 것들은 키가 달라질 수 있음
-# 즉, 이후에 PCX에 리퀘스트되어 KEY가 달라질수 있음을 의미함
-# 아마 아닐듯, 확인해보니 Line Plan Season만 달라짐
+def AutoFitColumnSize(worksheet, columns=None, margin=2):
+    # 각각 col 숫자와, cell을 불러옴
+    for i, column_cells in enumerate(worksheet.columns):
+        # 검사를 위한 변수
+        is_ok = False
 
-# 정보를 담기위한 dict 생성, old와 new모두 공통적으로 사용
-def make_dict(sh):
-    result = dict()
-    for i in range(4, sh.max_row + 1):
-        temp_key = sh.cell(i,23).value
-        if temp_key:
-            result[temp_key] = (sh.cell(i,14).value,sh.cell(i,15).value,i) #(GAC,GAC-49,row)
-    return result
+        if columns == None:
+            is_ok = True
+        elif isinstance(columns, list) and i in columns:
+            is_ok = True
+        
+        if is_ok:
+            length = max(len(str(cell.value)) for cell in column_cells)
+            worksheet.column_dimensions[column_cells[0].column_letter].width = length + margin
+
+    return worksheet
 
 # 메일 내용을 만들기 위한 함수
 # 결과 파일을 바탕으로 해당 row를 직접 추출, html형태를 만들어줌
-def make_subject(rows):
+def make_subject(ws, cols):
     my_table = ''
-    for r in rows:
+    for r in range(2, ws.max_row+1):
         my_table += '<tr class="mm align-center">'
         # for c in range(1, ws.max_column +1):
         # 지정한 col만 뽑아오게 되어있음, 따라서 my_col이 필요하며 내용 변경시 같이 변경
-        for c in my_col:
+        for c in cols:
             temp = ws.cell(r,c).value
             # colorway를 위한 조건문, 간단하게 표현함
             if c == 10 and temp:
@@ -70,7 +94,7 @@ def sendMail(mail_list : list, date):
 
 # 이름을 직접 입력해서 보내는 함수,
 # 일단 default 값과 입력해서 보내는 것으로 나누어서 설계
-def send_w_name(body,date):
+def send_w_name(body,date, attach_file_root):
     print('\n\t보내실 분의 이름을 입력해주세요 (고정값은 0을 입력해주세요) : ', end='')
     # 원하는 이름을 불러옴
     name = input()
@@ -88,27 +112,11 @@ def send_w_name(body,date):
     send_mail.To = send_to # 앞서 정리한 주소로 발송,
     send_mail.Subject = f'[NOTICE] GAC DATE CHANGED_{now}' 
     send_mail.HTMLBody = MY_BODY + body + MY_TAIL 
-    attachment = os.path.abspath(r) 
+    attachment = os.path.abspath(attach_file_root) 
     send_mail.Attachments.Add(attachment)
     send_mail.Send()
 
-# 엑셀 뷰를 위한 함수, 문자 길이에 따라 칸을 설정해줌
-def AutoFitColumnSize(worksheet, columns=None, margin=2):
-    # 각각 col 숫자와, cell을 불러옴
-    for i, column_cells in enumerate(worksheet.columns):
-        # 검사를 위한 변수
-        is_ok = False
 
-        if columns == None:
-            is_ok = True
-        elif isinstance(columns, list) and i in columns:
-            is_ok = True
-        
-        if is_ok:
-            length = max(len(str(cell.value)) for cell in column_cells)
-            worksheet.column_dimensions[column_cells[0].column_letter].width = length + margin
-
-    return worksheet
 
 # 중간에 나간 공지문 글귀
 # <p>From this week, This mail inform you not only GAC changing but also the new models that have been added suddenly.</p><p>Among the models being added, only models with GAC-49 dates within 2 weeks are included.</p><br>
@@ -579,149 +587,75 @@ MY_TAIL = '''
 </html>
             '''
 
+
+
 # 파일리스트를 불러옴
 file_list = list()
 # pr파일이 들어있는 경로 설정
 f_dir = './production_reports'
 # 엑셀 파일(매일오는 데이터를 기반으로 제작)
 for f in os.listdir(f_dir):
-    if 'xlsx' in f:
+    if 'xlsx' in f and  '~' not in f:
         file_list.append(f)
 
-# yes 어제 tod 오늘 가장 최신 두개를 비교
-# 앞으로 y,t로 표기
+mail_ads_df = pd.read_csv('./roots/mail_address.csv')
+mail_ads_df.head()
+
 yes_f = px.load_workbook(f'{f_dir}/{file_list[-2]}')
 tod_f = px.load_workbook(f'{f_dir}/{file_list[-1]}')
-ysh = yes_f.active
-tsh = tod_f.active
 
-# 각각의 키와 dict를 만들어줌
-make_key(ysh)
-make_key(tsh)
-ydict = make_dict(ysh)
-tdict = make_dict(tsh)
+yes_df = make_df(yes_f)
+tod_df = make_df(tod_f)
 
-# 저장파일을 불러올 경로
-my_root = './roots'
-wb = px.load_workbook(f'{my_root}/mail_address.xlsx')
-ws = wb.active
-
-# 각각의 주소별로 정보를 넣어줄 dict 생성
-# PIC의 이름을 기준으로 주소록을과 대조하여 메일 주소 생성,
-team_ad = dict()
-for i in range(1, ws.max_row+1):
-    n = ws.cell(i,1).value
-    a = ws.cell(i,2).value
-    team_ad[n] = {'mail_ad':a, 'rows':[]}
-# print(team_ad)
-
-# 새로 생긴 것들에 대한 row
-new_rows = []
-# GAC이 다른 전체 row들을 트래킹 하기 위한 변수
-total_rows = []
-for k in tdict:
-    # print(tdict[k][0], ydict[k][0])
-    # 만약 GAC날짜가 다르다면
-    if k in ydict and tdict[k][0] != ydict[k][0]:
-        # 어제오늘의 GAC들을 들고와줌
-        tr = tdict[k][2]
-        yr = ydict[k][2]
-        total_rows.append((tr,yr))
-    elif k not in ydict:
-        new_rows.append(tdict[k][2])
-        # name = tsh.cell(r, 19).value
-
-        # if name in team_ad: 
-        #     name = name.lower()
-            # team_ad[name]['rows'].append(tdict[k][2])
-            # team_ad[name]['gac'] = (ydict[k][0], tdict[k][0])
+yes_df['my_key'] = yes_df['obs_type'] + yes_df['po_id'] + yes_df['prod_fac'] + yes_df['style_code']
+tod_df['my_key'] = tod_df['obs_type'] + tod_df['po_id'] + tod_df['prod_fac'] + tod_df['style_code']
 
 
-# 원하는 col만 가져오기 위한 것
-my_col = [1,2,5,6,7,8,9,10,11,12,13,14,15,16,17,21,22,23,25]
+my_df = pd.merge(tod_df, yes_df[['my_key', 'gac', 'gac-49']], how='left', on='my_key', suffixes=('_tod','_yes'))
 
-# hitory를 위한 파일 생성
+my_df.columns
+
+my_df['gap'] = my_df['gac_tod'] - my_df['gac_yes']
+
+my_df['gap'] = my_df.gap.dt.days
+
+creation_date = datetime.today()
+# creation_date = creation_date.strftime('%Y%m%d')[2:]
+
+
+my_df['from_today'] = my_df['gac-49_tod'] - creation_date
+
+my_df['from_today'] = my_df['from_today'].dt.days
+
+
+# my_df['test'] = my_df.gac_tod.dt.strftime('%Y-%m-%d')
+
+new_con = (my_df.gac_yes.isnull() & (my_df.from_today < 14))
+change_con = (my_df.gac_tod != my_df.gac_yes) & ~(my_df['gac_yes'].isnull())
+
+res_df = my_df[new_con | change_con]
+
+my_selection = ['pcc_code', 'obs_type', 'line_plan_season', 'planning_season', 'costing_season', 'po_id', 'prod_fac', 'status', 'style_code', 'colorway', 'dev_style', 'td', 'mo_id', 'gac_tod', 'gac-49_tod', 'gac_yes', 'gac-49_yes', 'cbd_etq', 'cbd_status', 'pcx_status', 'actual_pcc', 'pcx_request', 'sap_po', 'remarks', 'gap']
+
+my_list = ['PCC Code', 'Order Type', 'Line Plan Season', 'Planning Season', 'Costing Season', 'PO ID', 'Prod. Fac', 'Status', 'Product Code', 'Colorway', 'Dev. Style Name', 'TD', 'DPA', 'Updated GAC', 'Updated GAC-49', 'Previous GAC', 'Previous GAC-49', 'CBD ETQ', 'CBD Status', 'PCX Quote Status', 'Actual PCC', 'PCX Request', 'SAP PO', 'Remarks', 'GAP']
+
+time_col = ['gac_tod', 'gac-49_tod', 'gac_yes', 'gac-49_yes']
+
+for c in time_col:
+       res_df[c] = res_df[c].dt.strftime('%Y-%m-%d')
+
+
+res_df = res_df[my_selection]
+res_df.columns = my_list
+
+
 wb = px.Workbook()
 ws = wb.active
-ws.title = 'Total Changed GAC List'
 
-# 제목들을 불러와줌
-for i in range(1, tsh.max_column+1):
-  if i >15:
-      ws.cell(1,i+2).value = tsh.cell(1,i).value
-  else:
-      ws.cell(1,i).value = tsh.cell(1,i).value
-    
-# 일부 제목을 수정
-ws.cell(1,4).value = 'Planning Season'
-ws.cell(1,5).value = 'Costing Season'
-# ws.insert_cols(16,2)
-ws.cell(1,14).value = 'Updated GAC'
-ws.cell(1,15).value = 'Updated GAC-49'
-ws.cell(1,16).value = 'Previous GAC'
-ws.cell(1,17).value = 'Previous GAC-49'
-ws.cell(1,25).value = 'GAP'
-
-# 이부분 점검하기
-
-# # 점검을 위한 임시 저장
-# tod_f.save('./test.xlsx')
-
-# 날짜 포맷을 저장
-datetime_format = "%Y-%m-%d"
-# 새로운 파일에 row를 쓰기 위한 변수
-n=1
-# print(total_rows)
+for r in dataframe_to_rows(res_df, index=False, header=True):
+      ws.append(r)
 
 
-urgent_new = list()
-for r in new_rows:
-    new_date = datetime.strptime(tsh.cell(r, 15).value, datetime_format)
-    tday = datetime.today()
-    if (new_date - tday).days < 14:
-        print((tday - new_date).days)
-
-        urgent_new.append(r)
-
-
-for r in urgent_new:
-    n+=1
-    for c in range(1, tsh.max_column):
-        if c > 15:
-            ws.cell(n,c+2).value = tsh.cell(r,c).value
-        else:
-            ws.cell(n,c).value = tsh.cell(r,c).value
-    ws.cell(n, ws.max_column-1).value = 'Newly Updated (<14days)'
-
-
-
-# 제목을 제외하고 row를 쓰기 시작
-# GAC이 다른 정보들만 불러옴
-for j in total_rows:
-    n += 1
-    # 현재 파일에서 정보들을 불러옴
-    for i in range(1, tsh.max_column):
-      # Pre-GAC을 위해서 16,17열을 비우기 위한 방법
-      if i > 15:
-        ws.cell(n,i+2).value = tsh.cell(j[0],i).value
-      else:
-        ws.cell(n,i).value = tsh.cell(j[0],i).value
-    # pre-GAC을 적어줌
-    ws.cell(n, 16).value = ysh.cell(j[1],14).value
-    ws.cell(n, 17).value = ysh.cell(j[1],15).value
-    temp1 = datetime.strptime(ws.cell(n, 14).value, datetime_format)
-    temp2 = datetime.strptime(ws.cell(n, 16).value, datetime_format)
-    
-    # print(temp1, temp2)
-    # 변경 차를 입력해줌
-    ws.cell(n, ws.max_column).value = (temp1-temp2).days
-
-
-
-
-
-
-# 디자인 파트
 
 for i in range(1,ws.max_column+1):
     # 제목열의 경우의 설정
@@ -744,46 +678,26 @@ AutoFitColumnSize(ws)
 # 현재 날짜를 정리
 now = str(datetime.now())[2:10].replace('-', '')
 
+my_root = './roots'
+
 # 현재 작업 날짜를 바탕으로 hitory 파일을 저장
 wb.save(f'{my_root}/{now}.xlsx')
 
-mail_list = []
 
-# 이름에 따라서 넣기위한 과정, name에다가 넣어줌
-for i in range(2, ws.max_row+1):
-    name = ws.cell(i, 21).value
-    if name and name in team_ad:
-        name = name.lower()
-        team_ad[name]['rows'].append(i)
 
-# 각각의 모델 담당자별 모델 정보가 담겨있는 row를 저장해줌
-for h in team_ad:
-    if team_ad[h]['rows']:
-        # print(team_ad[h]['mail_ad'], team_ad[h]['rows'])
-        mail_list.append((team_ad[h]['mail_ad'], make_subject(team_ad[h]['rows'])))
-
-# 해당 파일 저장
 r = f'{my_root}/{now}.xlsx'
-# sendMail(mail_list, now)
 
-if total_rows or urgent_new:
-  # 담당자 관계없이 모든 row를 불러옴(결과파일)
-  all_row = range(2,ws.max_row+1)
+# 이작업을 안해주면 nan으로 나와서 이작업 해줌(판다스 형식으로 나옴)
+wb = px.load_workbook(r)
+ws = wb.active
+
+# 원하는 col만 가져오기 위한 것
+my_col = [1,2,5,6,7,8,9,10,11,12,13,14,15,16,17,21,22,23,25]
+
+if ws.max_row > 1:
   # 모든 row를 바탕으로 내용생성
-  all_list = make_subject(all_row)
+  all_list = make_subject(ws, my_col)
   # 이름및 default를 바탕으로한 메일 전송
-  send_w_name(all_list, now)
+  send_w_name(all_list, now, r)
 else:
   print('\n\tGAC이 변경된 모델이 존재하지 않습니다. 프로그램을 종료합니다.')
-
-
-
-
-
-
-        
-
-
-
-
-
