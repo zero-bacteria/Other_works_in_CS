@@ -48,35 +48,47 @@ creation_date = creation_date.strftime('%Y%m%d')[2:]
 
 
 # 기존의 파일을 불러올 리스트 생성
-file_list = list()
+xls_list = list()
+xlsx_list = list()
 # 현재 경로 지정 ( 꼭 절대경로로 할 필요는 없음 나중에 win32에서 사용하려고 사용)
 now_dir = os.path.abspath('./01_PCX')
+
+print(os.listdir(now_dir))
+
+
 # 해당 경로의 파일들을 불러오는 과정
 for f in os.listdir('./01_PCX'):
     # xls 파일만 불러옴 (xls를 포함시키는 과정에서 xlsx가 포함될 수 있어서 다음과 같이 설정)
-    if 'xls' in f and 'xlsx' not in f:
-        file_list.append(f)
-
-print(f'\t 다음 파일들을 변환하겠습니다 : {file_list}\n')
+    if 'xlsx' in f:
+        xlsx_list.append(f)
+    elif 'xls' in f:
+        xls_list.append(f)
+    
 
 # 결과 리스트를 작성
 result = []
-# xls 파일들을 하나하나 불러와 작업을 실행
-# excel을 사용하기 위한 application
-excel = win32.Dispatch('Excel.Application')
-for f in file_list:
-    # 현재 경로에 해당 파일을 불러옴
-    pb = excel.Workbooks.Open(f'{now_dir}\{f}')
-    # xlsx파일로 바꾸어줌
-    pb.SaveAs(f'{now_dir}\{f}x', FileFormat = 51) #FileFormat = 51 is for .xlsx extension
-    # 닫음
-    pb.Close() #FileFormat = 56 is for .xls extension
-    # 해당 결과를 파일 리스트에 넣어줌
-    result.append(f+'x')
-    print(f'\t\t {f} 변환 완료')
 
-# 엑셀 종료(엑셀 열고 닫는것은 반복문에 굳이 필요한가 검토 필요)
-excel.Application.Quit()
+if not xlsx_list:
+    print(f'\t 다음 파일들을 변환하겠습니다 : {xls_list}\n')
+    # xls 파일들을 하나하나 불러와 작업을 실행
+    # excel을 사용하기 위한 application
+    excel = win32.Dispatch('Excel.Application')
+    for f in xls_list:
+        # 현재 경로에 해당 파일을 불러옴
+        pb = excel.Workbooks.Open(f'{now_dir}\{f}')
+        # xlsx파일로 바꾸어줌
+        pb.SaveAs(f'{now_dir}\{f}x', FileFormat = 51) #FileFormat = 51 is for .xlsx extension
+        # 닫음
+        pb.Close() #FileFormat = 56 is for .xls extension
+        # 해당 결과를 파일 리스트에 넣어줌
+        result.append(f+'x')
+        print(f'\t\t {f} 변환 완료')
+
+    # 엑셀 종료(엑셀 열고 닫는것은 반복문에 굳이 필요한가 검토 필요)
+    excel.Application.Quit()
+    
+else:
+    result = xlsx_list
 
 pcx_wb = px.Workbook()
 pcx_ws = pcx_wb.active
@@ -275,7 +287,8 @@ raw_df['remain_type'] = ''
 raw_df.loc[init_condition, 'remain_type'] = 'New'
 raw_df.loc[remain_old_condition, 'remain_type'] = 'Old'
 
-raw_df.loc[~(raw_df.CBD_ETQ.isnull()), 'CBD_ETQ'] = raw_df.loc[~(raw_df.CBD_ETQ.isnull()), 'CBD_ETQ'].astype(str).str.slice(start = 0, stop = 10)
+raw_df['CBD_ETQ'] = raw_df.CBD_ETQ.dt.strftime('%Y-%m-%d')
+# raw_df.loc[~(raw_df.CBD_ETQ.isnull()), 'CBD_ETQ'] = raw_df.loc[~(raw_df.CBD_ETQ.isnull()), 'CBD_ETQ'].astype(str).str.slice(start = 0, stop = 10)
 
 # raw_df.remain_type.value_counts()
 # raw_df = pd.merge(raw_df, my_df[['my_key', 'remain_type']], how='left', on='my_key')
