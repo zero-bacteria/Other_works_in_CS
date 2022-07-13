@@ -18,7 +18,7 @@ def make_df(wb):
     for m_range in merged_list:
         ws.unmerge_cells(str(m_range))
 
-    ws.delete_rows(1,2)
+    ws.delete_rows(1)
     
     df = pd.DataFrame(ws.values)
     df.columns = df.iloc[0,:]
@@ -30,7 +30,7 @@ def make_df(wb):
     
     df.columns = my_col
     
-    df['gac'] = pd.to_datetime(df.gac)
+    df['cgac'] = pd.to_datetime(df.cgac)
     df['gac-49'] = pd.to_datetime(df['gac-49'])
     
     
@@ -607,39 +607,46 @@ tod_f = px.load_workbook(f'{f_dir}/{file_list[-1]}')
 yes_df = make_df(yes_f)
 tod_df = make_df(tod_f)
 
-yes_df['my_key'] = yes_df['obs_type'] + yes_df['po_id'] + yes_df['prod_fac'] + yes_df['style_code']
-tod_df['my_key'] = tod_df['obs_type'] + tod_df['po_id'] + tod_df['prod_fac'] + tod_df['style_code']
+yes_df['my_key'] = yes_df['obs_type'] + yes_df['po_id'] + yes_df['prod_fac'] + yes_df['product_code']
+tod_df['my_key'] = tod_df['obs_type'] + tod_df['po_id'] + tod_df['prod_fac'] + tod_df['product_code']
 
 
-my_df = pd.merge(tod_df, yes_df[['my_key', 'gac', 'gac-49']], how='left', on='my_key', suffixes=('_tod','_yes'))
+my_df = pd.merge(tod_df, yes_df[['my_key', 'cgac', 'gac-49', 'remaining_days']], how='left', on='my_key', suffixes=('_tod','_yes'))
 
 my_df.columns
 
-my_df['gap'] = my_df['gac_tod'] - my_df['gac_yes']
+my_df['gap'] = my_df['cgac_tod'] - my_df['cgac_yes']
 
 my_df['gap'] = my_df.gap.dt.days
 
 creation_date = datetime.today()
 # creation_date = creation_date.strftime('%Y%m%d')[2:]
 
-
+# 이전에 쓰던 것
 my_df['from_today'] = my_df['gac-49_tod'] - creation_date
-
 my_df['from_today'] = my_df['from_today'].dt.days
+new_con_1 = (my_df.cgac_yes.isnull() & (my_df.from_today < 14))
 
+# my_df['test'] = my_df.cgac_tod.dt.strftime('%Y-%m-%d')
 
-# my_df['test'] = my_df.gac_tod.dt.strftime('%Y-%m-%d')
+# remaining_days가 생긴 이후에 쓴것
+my_df['remaining_days_tod'] = my_df.remaining_days_tod.astype('int64')
+new_con = my_df.remaining_days_yes.isnull() & (my_df.remaining_days_tod > -14) 
 
-new_con = (my_df.gac_yes.isnull() & (my_df.from_today < 14))
-change_con = (my_df.gac_tod != my_df.gac_yes) & ~(my_df['gac_yes'].isnull())
+my_df.loc[new_con, 'remarks'] = 'Newly Updated (<14days)'
+
+change_con = (my_df.cgac_tod != my_df.cgac_yes) & ~(my_df['cgac_yes'].isnull())
 
 res_df = my_df[new_con | change_con]
 
-my_selection = ['pcc_code', 'obs_type', 'line_plan_season', 'planning_season', 'costing_season', 'po_id', 'prod_fac', 'status', 'style_code', 'colorway', 'dev_style', 'td', 'mo_id', 'gac_tod', 'gac-49_tod', 'gac_yes', 'gac-49_yes', 'cbd_etq', 'cbd_status', 'pcx_status', 'actual_pcc', 'pcx_request', 'sap_po', 'remarks', 'gap']
+
+
+# my_selection = ['pcc_code', 'obs_type', 'line_plan_season', 'planning_season', 'costing_season', 'po_id', 'prod_fac', 'status', 'style_code', 'colorway', 'dev_style', 'td', 'mo_id', 'cgac_tod', 'gac-49_tod', 'cgac_yes', 'gac-49_yes', 'cbd_etq', 'cbd_status', 'pcx_status', 'actual_pcc', 'pcx_request', 'sap_po', 'remarks', 'gap']
+my_selection = ['pcc_code', 'obs_type', 'line_plan_season', 'planning', 'costing', 'po_id', 'prod_fac', 'status', 'product_code', 'colorway', 'dev_style_name', 'td', 'dpa', 'cgac_tod', 'gac-49_tod', 'cgac_yes', 'gac-49_yes', 'cbd_etq', 'cbd_status', 'pcx_quote_status', 'actual_pic', 'pcx_request', 'sap_po', 'remarks', 'gap']
 
 my_list = ['PCC Code', 'Order Type', 'Line Plan Season', 'Planning Season', 'Costing Season', 'PO ID', 'Prod. Fac', 'Status', 'Product Code', 'Colorway', 'Dev. Style Name', 'TD', 'DPA', 'Updated GAC', 'Updated GAC-49', 'Previous GAC', 'Previous GAC-49', 'CBD ETQ', 'CBD Status', 'PCX Quote Status', 'Actual PCC', 'PCX Request', 'SAP PO', 'Remarks', 'GAP']
 
-time_col = ['gac_tod', 'gac-49_tod', 'gac_yes', 'gac-49_yes']
+time_col = ['cgac_tod', 'gac-49_tod', 'cgac_yes', 'gac-49_yes']
 
 for c in time_col:
        res_df[c] = res_df[c].dt.strftime('%Y-%m-%d')
@@ -680,6 +687,7 @@ now = str(datetime.now())[2:10].replace('-', '')
 
 my_root = './roots'
 
+ws.title='Summary'
 # 현재 작업 날짜를 바탕으로 hitory 파일을 저장
 wb.save(f'{my_root}/{now}.xlsx')
 
